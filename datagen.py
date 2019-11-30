@@ -12,6 +12,8 @@ class RoundsDataset(Dataset):
             lines = f.readlines()
             self.rounds = list(map(lambda line: json.loads(line), lines))
         money = np.array(list(map(lambda x: int(x['moneyRaised']), self.rounds)))
+        self.fstages = list(set(map(lambda x: x.get('fundingStage', ''), self.rounds)))
+        self.ftypes = list(set(map(lambda x: x['fundingType'], self.rounds)))
         self.money_norm = LA.norm(money, 2)
 
         with(open(fundindustiesjson)) as f:
@@ -83,8 +85,10 @@ class RoundsDataset(Dataset):
         money = int(r['moneyRaised']) / self.money_norm
         ts = torch.tensor(startup_emb.astype(np.float32))
         ti = torch.tensor(investors_emb.astype(np.float32))
+        tfstage = torch.tensor([self.fstages.index(r.get('fundingStage', '')) / len(self.fstages)])
+        tftype = torch.tensor([self.ftypes.index(r['fundingType']) / len(self.ftypes)])
         tm = torch.tensor(money)
-        return torch.cat([ts, ti], dim=0), tm
+        return torch.cat([ts, ti, tfstage, tftype], dim=0), tm
 
 
 if __name__ == '__main__':
@@ -100,3 +104,13 @@ if __name__ == '__main__':
     validation_size = len(rd) - train_size
     datasets = random_split(rd, [train_size, validation_size])
     print(len(datasets[0]), len(datasets[1]))
+
+    mmin = 1
+    mmax = 0
+    for (x, money) in rd:
+        m = money.item()
+        print(m)
+        mmin = min(mmin, m)
+        mmax = max(mmax, m)
+
+    print(mmin, mmax, mmin * rd.money_norm, mmax * rd.money_norm)
