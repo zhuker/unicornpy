@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: spacyapi
+  labels:
+    app: spacyapi1
+spec:
+  selector:
+    app: spacyapi1
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: spacyapi-port
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: spacyapi
+  annotations:
+    # using kubernetes/ingress-nginx controller
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /
+
+    # SSL
+    certmanager.k8s.io/cluster-issuer: "letsencrypt-prod"
+    kubernetes.io/tls-acme: "true"
+
+    # websocket
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+
+spec:
+  tls:
+    - hosts:
+        - spacyapi.c.videogorillas.com
+      secretName: tls-secret
+
+  rules:
+    - host: spacyapi.c.videogorillas.com
+      http:
+        paths:
+          - backend:
+              serviceName: spacyapi
+              servicePort: spacyapi-port
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: spacyapi1
+spec:
+  backoffLimit: 0
+  parallelism: 1
+  template:
+    metadata:
+      labels:
+        app: spacyapi1
+    spec:
+      imagePullSecrets:
+        - name: regcred42
+      restartPolicy: Never
+      containers:
+        - image: jgontrum/spacyapi:en_v2
+          name: spacyapi
+          ports:
+            - containerPort: 80
+              hostPort: 80
+              name: spacyapi-port
+
