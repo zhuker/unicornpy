@@ -63,7 +63,7 @@ class RoundsDataset(Dataset):
         for industry in industries:
             assert industry in self.fie
 
-        vecs = np.array([self.fie[industry] * industries[industry] for industry in industries])
+        vecs = np.array([self.fie[industry] * weight for (industry, weight) in industries.items()])
         vs = np.sum(vecs, axis=0)
         n = LA.norm(vs, 2)
         vs /= n
