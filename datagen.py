@@ -69,12 +69,7 @@ class RoundsDataset(Dataset):
         vs /= n
         return vs
 
-    def __getitem__(self, item: int):
-        r = self.rounds[item]
-        c = r['company']
-        startup_emb = self._startup_vector(c)
-
-        funds = r['investors']
+    def _investors_emb(self, funds) -> np.ndarray:
         for fund in funds:
             assert fund in self.fund2industries
         assert funds is not None
@@ -82,11 +77,23 @@ class RoundsDataset(Dataset):
         investors_emb = np.sum(fv, axis=0)
         n = LA.norm(investors_emb, 2)
         investors_emb /= n
+        return investors_emb
+
+    def __getitem__(self, item: int):
+        r = self.rounds[item]
+        startup_emb = self._startup_vector(r['company'])
+        investors_emb = self._investors_emb(r['investors'])
         money = int(r['moneyRaised']) / self.money_norm
         ts = torch.tensor(startup_emb.astype(np.float32))
         ti = torch.tensor(investors_emb.astype(np.float32))
-        tfstage = torch.tensor([self.fstages.index(r.get('fundingStage', '')) / len(self.fstages)])
-        tftype = torch.tensor([self.ftypes.index(r['fundingType']) / len(self.ftypes)])
+
+        fstage = self.fstages.index(r.get('fundingStage', ''))
+        ftype = self.ftypes.index(r['fundingType'])
+        tfstage = torch.zeros(len(self.fstages))
+        tftype = torch.zeros(len(self.ftypes))
+        tfstage[fstage] = 1
+        tftype[ftype] = 1
+
         tm = torch.tensor(money)
         return torch.cat([ts, ti, tfstage, tftype], dim=0), tm
 

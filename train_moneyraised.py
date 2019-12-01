@@ -31,6 +31,9 @@ from datagen import RoundsDataset
 # 256/128 b512
 # Epoch 19: validation loss: 7.874847324274015e-05 8.169555439963005e-05 $12M $28M $86M
 
+# 256/128 b256 onehot
+# Epoch 19: validation loss: 0.000085 0.000086 $12M $13M $266M $59M
+
 class Feedforward(torch.nn.Module):
     def __init__(self, input_size, hidden_size):
         super(Feedforward, self).__init__()
@@ -68,8 +71,10 @@ print(f"train dataset size {len(trainset)}")
 print(f"validation dataset size {len(valset)}")
 trainloader = DataLoader(trainset, shuffle=True, batch_size=256)
 valloader = DataLoader(valset, shuffle=False, batch_size=256)
+(vec, money) = rd[0]
+print(f"investment round vec shape {vec.shape}")
 
-model = Feedforward(202, 256)
+model = Feedforward(vec.shape[0], 256)
 dev = torch.device('cpu')
 model.to(dev)
 lossf = MSELoss()
