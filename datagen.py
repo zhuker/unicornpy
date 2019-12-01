@@ -7,7 +7,7 @@ import numpy.linalg as LA
 
 class RoundsDataset(Dataset):
     def __init__(self, roundsjsonlpath: str, fundindustiesjson: str, fundindustryembstsv: str, startupsjsonl: str,
-                 startup_industry_embs_tsv: str):
+                 startup_industry_embs_tsv: str, funds_jsonl: str):
         with(open(roundsjsonlpath, "r")) as f:
             lines = f.readlines()
             self.rounds = list(map(lambda line: json.loads(line), lines))
@@ -15,6 +15,13 @@ class RoundsDataset(Dataset):
         self.fstages = list(set(map(lambda x: x.get('fundingStage', ''), self.rounds)))
         self.ftypes = list(set(map(lambda x: x['fundingType'], self.rounds)))
         self.money_norm = LA.norm(money, 2)
+
+        with(open(funds_jsonl)) as f:
+            self.funds = {f['name']: f for f in map(lambda line: json.loads(line), f.readlines())}
+
+        for (name, fund) in self.funds.items():
+            if fund.get('country', '') == 'New York':
+                fund['country'] = 'United States'
 
         with(open(fundindustiesjson)) as f:
             self.fund2industries = json.load(f)
@@ -32,6 +39,10 @@ class RoundsDataset(Dataset):
             lines = f.readlines()
             self.startups = {s['company']: s for s in map(lambda line: json.loads(line), lines)}
 
+        for (name, startup) in self.startups.items():
+            if startup.get('country', '') == 'New York':
+                startup['country'] = 'United States'
+
         with(open(startup_industry_embs_tsv)) as f:
             lines = f.readlines()
             self.sie = {}
@@ -40,6 +51,10 @@ class RoundsDataset(Dataset):
                 industry = tokens[0].replace('#', '')
                 vector = np.array(list(map(lambda x: float(x), tokens[1:])))
                 self.sie[industry] = vector
+
+        scountries = [startup.get('country', '') for (name, startup) in self.startups.items()]
+        fcountries = [fund.get('country', '') for (name, fund) in self.funds.items()]
+        self.countries = sorted(list(filter(lambda x: x != '', set(scountries + fcountries))))
 
     def __len__(self):
         return len(self.rounds)
@@ -94,16 +109,31 @@ class RoundsDataset(Dataset):
         tfstage[fstage] = 1
         tftype[ftype] = 1
 
+        sc = self.startups[r['company']].get('country', '')
+        fcs = set(map(lambda f: self.funds[f].get('country', ''), filter(lambda f: f in self.funds, r['investors'])))
+        tsc = torch.zeros(len(self.countries))
+        tfcs = torch.zeros(len(self.countries))
+        if sc in self.countries:
+            tsc[self.countries.index(sc)] = 1
+        for fc in fcs:
+            if fc in self.countries:
+                tfcs[self.countries.index(fc)] = 1
+
+        year = int(r.get('dealDate', r.get('announcedDate', '0')).split('-')[0])
+        # ty = torch.tensor([year])
+
         tm = torch.tensor(money)
+        # return torch.cat([ts, ti, tfstage, tftype, tsc, tfcs], dim=0), tm
         return torch.cat([ts, ti, tfstage, tftype], dim=0), tm
 
 
 if __name__ == '__main__':
-    rd = RoundsDataset('/home/zhukov/clients/unicorn/unicorn/supercleanrounds.jsonl',
-                       '/home/zhukov/clients/unicorn/unicorn/fund_industries.json',
-                       '/home/zhukov/clients/unicorn/Starspace/fund2inv2.tsv',
-                       '/home/zhukov/clients/unicorn/unicorn/startups.jsonl',
-                       '/home/zhukov/clients/unicorn/Starspace/industries.tsv')
+    rd = RoundsDataset('dataset/supercleanrounds.jsonl',
+                       'dataset/fund_industries.json',
+                       'dataset/fund_industries.tsv',
+                       'dataset/startups.jsonl',
+                       'dataset/startup_industries.tsv',
+                       'dataset/funds.jsonl')
     x = rd[1]
     print(x)
 

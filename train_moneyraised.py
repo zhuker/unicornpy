@@ -33,6 +33,18 @@ from datagen import RoundsDataset
 
 # 256/128 b256 onehot
 # Epoch 19: validation loss: 0.000085 0.000086 $12M $13M $266M $59M
+# Epoch 19: validation loss: 0.000109 0.000184 $12M 86% 2432% 438%
+# Epoch 39: validation loss: 0.000054 0.000050 $13M 81% 520% 182%
+# Epoch 99: validation loss: 0.000061 0.000055 $12M 83% 1738% 346%
+
+# 256/128 b256 onehot+country
+# Epoch 19: validation loss: 0.000024 0.000052 $12M $12M $205M $54M
+#Epoch 19: validation loss: 0.000056 0.000176 $12M 95% 7530% 1039%
+#Epoch 39: validation loss: 0.000034 0.000048 $12M 98% 6214% 983%
+
+# 512/256 b256 onehot+country
+# expected $249M got $0M delta $249M 865730%
+# Epoch 19: validation loss: 0.000034 0.000046 $13M $13M $192M $54M
 
 class Feedforward(torch.nn.Module):
     def __init__(self, input_size, hidden_size):
@@ -61,7 +73,8 @@ rd = RoundsDataset('dataset/supercleanrounds.jsonl',
                    'dataset/fund_industries.json',
                    'dataset/fund_industries.tsv',
                    'dataset/startups.jsonl',
-                   'dataset/startup_industries.tsv')
+                   'dataset/startup_industries.tsv',
+                   'dataset/funds.jsonl')
 
 train_size = len(rd) * 80 // 100
 validation_size = len(rd) - train_size
@@ -75,7 +88,7 @@ valloader = DataLoader(valset, shuffle=False, batch_size=256)
 print(f"investment round vec shape {vec.shape}")
 
 model = Feedforward(vec.shape[0], 256)
-dev = torch.device('cpu')
+dev = torch.device('cuda')
 model.to(dev)
 lossf = MSELoss()
 optimizer = Adam(params=model.parameters(), lr=0.001)
@@ -98,17 +111,19 @@ for epoch in range(epoch):
     model.eval()
     with torch.no_grad():
         vlosses = []
-        dmoney = torch.tensor([])
+        dmoney = torch.tensor([]).to(dev)
         vmoney = torch.tensor([])
         for i, (vec, money) in enumerate(valloader):
             money_pred = model(vec.to(dev))
-            expected_money = int(money[0].item() * rd.money_norm)
-            actual_money = int(money_pred[0].item() * rd.money_norm)
-            emoney = money * rd.money_norm
-            amoney = money_pred.squeeze() * rd.money_norm
+            norm = rd.money_norm
+            expected_money = int(money[0].item() * norm)
+            actual_money = int(money_pred[0].item() * norm)
+            emoney = money.to(dev) * norm
+            amoney = money_pred.squeeze() * norm
             dd = torch.abs(emoney - amoney)
+            dd = dd * 100 / (amoney + 1)
             dmoney = torch.cat([dmoney, dd])
-            vmoney = torch.cat([vmoney, money * rd.money_norm])
+            vmoney = torch.cat([vmoney, money * norm])
             d = expected_money - actual_money
             print(
                 f'expected ${int(expected_money / 1000000)}M got ${int(actual_money / 1000000)}M delta ${int(d / 1000000)}M {int(d * 100 / (actual_money + 1))}%')
@@ -118,6 +133,6 @@ for epoch in range(epoch):
         mvloss = np.median(vlosses)
         meanvloss = np.mean(vlosses)
         print(
-            f'Epoch {epoch}: validation loss: {mvloss:.6f} {meanvloss:.6f} ${int(vmoney.median() / 1000000)}M ${int(dmoney.median() / 1000000)}M ${int(dmoney.std() / 1000000)}M ${int(dmoney.mean() / 1000000)}M')
+            f'Epoch {epoch}: validation loss: {mvloss:.6f} {meanvloss:.6f} ${int(vmoney.median() / 1000000)}M {int(dmoney.median())}% {int(dmoney.std())}% {int(dmoney.mean())}%')
 
     model.train()
