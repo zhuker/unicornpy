@@ -29,6 +29,22 @@ def _money_buckets(money: List[int], nbuckets: int = 10) -> List[range]:
     return ranges
 
 
+def _buckets(whatever: List, keyfun, nbuckets: int = 10) -> List[List]:
+    smoney = sorted(whatever, key=keyfun)
+    chunks = []
+    chunk = []
+    chunksize = len(smoney) // nbuckets
+    for m in smoney:
+        if len(chunk) >= chunksize and keyfun(m) != keyfun(chunk[-1]):
+            chunks.append(chunk)
+            chunk = []
+        chunk.append(m)
+    if len(chunk) != 0:
+        chunks.append(chunk)
+
+    return chunks
+
+
 class RoundsDataset(Dataset):
     def __init__(self, roundsjsonlpath: str, fundindustiesjson: str, fundindustryembstsv: str, startupsjsonl: str,
                  startup_industry_embs_tsv: str, funds_jsonl: str):
@@ -161,15 +177,99 @@ class RoundsDataset(Dataset):
         # return torch.cat([ts, ti, tfstage, tftype], dim=0), tm
 
 
+class FundsDataset(Dataset):
+    @staticmethod
+    def from_json(fundprofiles_json_path: str):
+        with open(fundprofiles_json_path, 'r') as f:
+            fundprofiles = list(json.load(f).items())
+
+        money = []
+        for f, x in fundprofiles:
+            for y in x:
+                money.append(y[-1])
+        money_norm = LA.norm(np.array(money), 2)
+
+        return FundsDataset(fundprofiles, money_norm)
+
+    def __init__(self, fundprofiles, money_norm):
+        self.industries = 656
+        self.ftypes = 27
+        self.fundprofiles = fundprofiles
+        self.money_norm = money_norm
+
+    def __getitem__(self, item: int):
+        t = torch.zeros((self.ftypes, self.industries))
+        f, x = self.fundprofiles[item]
+        for X in x:
+            ftype, ind, money = X
+            t[ftype, ind] = money / self.money_norm
+
+        return t
+
+    def __len__(self):
+        return len(self.fundprofiles)
+
+    def split(self, trainpercentage: int = 80):
+        copy = list(self.fundprofiles)
+        chunks = _buckets(copy, lambda x: len(x[-1]), nbuckets=12)
+
+        rnd = np.random.RandomState(31374243)
+
+        train_fds = []
+        test_fds = []
+
+        for chunk in chunks:
+            idxs = np.arange(0, len(chunk))
+            trainsz = len(chunk) * trainpercentage // 100
+            rnd.shuffle(idxs)
+            train_idxs = idxs[0:trainsz]
+            test_idxs = idxs[trainsz:]
+            train = list(np.array(chunk)[train_idxs])
+            test = list(np.array(chunk)[test_idxs])
+            train_fds.extend(train)
+            test_fds.extend(test)
+
+        test_dataset = FundsDataset(test_fds, self.money_norm)
+        train_dataset = FundsDataset(train_fds, self.money_norm)
+
+        return train_dataset, test_dataset
+
+
 if __name__ == '__main__':
+    fd = FundsDataset.from_json('dataset/fundprofiles1.json')
+    copy = list(fd.fundprofiles)
+    chunks = _buckets(copy, lambda x: len(x[-1]), nbuckets=12)
+
+    rnd = np.random.RandomState(3137)
+
+    train_fds = []
+    test_fds = []
+
+    for chunk in chunks:
+        idxs = np.arange(0, len(chunk))
+        trainsz = len(chunk) * 80 // 100
+        rnd.shuffle(idxs)
+        train_idxs = idxs[0:trainsz]
+        test_idxs = idxs[trainsz:]
+        train = list(np.array(chunk)[train_idxs])
+        test = list(np.array(chunk)[test_idxs])
+        train_fds.extend(train)
+        test_fds.extend(test)
+
+    test_dataset = FundsDataset(test_fds, fd.money_norm)
+    train_dataset = FundsDataset(train_fds, fd.money_norm)
+    print(len(test_dataset), len(train_dataset))
+
+if __name__ == '__main1__':
+
     rd = RoundsDataset('dataset/supercleanrounds.jsonl',
                        'dataset/fund_industries.json',
                        'dataset/fund_industries.tsv',
                        'dataset/startups.jsonl',
                        'dataset/startup_industries.tsv',
                        'dataset/funds.jsonl')
-    x = rd[1]
-    print(x)
+    idxs = rd[1]
+    print(idxs)
 
     train_size = len(rd) * 80 // 100
     validation_size = len(rd) - train_size
@@ -178,7 +278,7 @@ if __name__ == '__main__':
 
     mmin = 1
     mmax = 0
-    for (x, money) in rd:
+    for (idxs, money) in rd:
         m = money.item()
         print(m)
         mmin = min(mmin, m)
