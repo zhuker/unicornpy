@@ -1,8 +1,32 @@
+from typing import List
+
 import numpy as np
 import torch
 import json
 from torch.utils.data import Dataset, random_split
 import numpy.linalg as LA
+
+
+def _money_buckets(money: List[int], nbuckets: int = 10) -> List[range]:
+    smoney = sorted(money)
+    chunks = []
+    chunk = []
+    chunksize = len(smoney) // nbuckets
+    for m in smoney:
+        if len(chunk) >= chunksize and m != chunk[-1]:
+            chunks.append(chunk)
+            chunk = []
+        chunk.append(m)
+    if len(chunk) != 0:
+        chunks.append(chunk)
+
+    for current, _next in zip(chunks, chunks[1:]):
+        current[-1] = _next[0] - 1
+
+    ranges = [range(chunk[0], chunk[-1] + 1) for chunk in chunks]
+    for r in ranges:
+        print(r)
+    return ranges
 
 
 class RoundsDataset(Dataset):
@@ -11,10 +35,11 @@ class RoundsDataset(Dataset):
         with(open(roundsjsonlpath, "r")) as f:
             lines = f.readlines()
             self.rounds = list(map(lambda line: json.loads(line), lines))
-        money = np.array(list(map(lambda x: int(x['moneyRaised']), self.rounds)))
+        money = list(map(lambda x: int(x['moneyRaised']), self.rounds))
         self.fstages = list(set(map(lambda x: x.get('fundingStage', ''), self.rounds)))
         self.ftypes = list(set(map(lambda x: x['fundingType'], self.rounds)))
-        self.money_norm = LA.norm(money, 2)
+        self.money_norm = LA.norm(np.array(money), 2)
+        self.money_buckets = _money_buckets(money)
 
         with(open(funds_jsonl)) as f:
             self.funds = {f['name']: f for f in map(lambda line: json.loads(line), f.readlines())}
@@ -98,7 +123,8 @@ class RoundsDataset(Dataset):
         r = self.rounds[item]
         startup_emb = self._startup_vector(r['company'])
         investors_emb = self._investors_emb(r['investors'])
-        money = int(r['moneyRaised']) / self.money_norm
+        money = int(r['moneyRaised'])
+
         ts = torch.tensor(startup_emb.astype(np.float32))
         ti = torch.tensor(investors_emb.astype(np.float32))
 
@@ -122,9 +148,17 @@ class RoundsDataset(Dataset):
         year = int(r.get('dealDate', r.get('announcedDate', '0')).split('-')[0])
         # ty = torch.tensor([year])
 
-        tm = torch.tensor(money)
+        bucketidx = -1
+        for i, bucket in enumerate(self.money_buckets):
+            if money in bucket:
+                bucketidx = i
+                break
+        assert bucketidx >= 0
+
+        tm = torch.tensor(bucketidx)
         # return torch.cat([ts, ti, tfstage, tftype, tsc, tfcs], dim=0), tm
-        return torch.cat([ts, ti, tfstage, tftype], dim=0), tm
+        return torch.cat([ts, tfstage, tftype], dim=0), tm
+        # return torch.cat([ts, ti, tfstage, tftype], dim=0), tm
 
 
 if __name__ == '__main__':

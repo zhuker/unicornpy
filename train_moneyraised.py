@@ -1,6 +1,7 @@
 import numpy as np
 import torch
-from torch.nn import MSELoss, L1Loss
+from torch import nn
+from torch.nn import MSELoss, L1Loss, CrossEntropyLoss
 from torch.optim import Adam, SGD
 from torch.utils.data import random_split, DataLoader
 
@@ -39,34 +40,41 @@ from datagen import RoundsDataset
 
 # 256/128 b256 onehot+country
 # Epoch 19: validation loss: 0.000024 0.000052 $12M $12M $205M $54M
-#Epoch 19: validation loss: 0.000056 0.000176 $12M 95% 7530% 1039%
-#Epoch 39: validation loss: 0.000034 0.000048 $12M 98% 6214% 983%
+# Epoch 19: validation loss: 0.000056 0.000176 $12M 95% 7530% 1039%
+# Epoch 39: validation loss: 0.000034 0.000048 $12M 98% 6214% 983%
 
 # 512/256 b256 onehot+country
 # expected $249M got $0M delta $249M 865730%
 # Epoch 19: validation loss: 0.000034 0.000046 $13M $13M $192M $54M
 
+# nbuckets=16
+# 256/128
+# Epoch 19/27: train loss: 2.238936
+# 384/192
+# Epoch 19/27: train loss: 1.897351
+# 512/256/256
+# Epoch 19/27: train loss: 1.948873
+# 512/256/128
+# Epoch 19/27: train loss: 1.957113
+# 512/256
+# Epoch 19/27: train loss: 1.976440
+
 class Feedforward(torch.nn.Module):
-    def __init__(self, input_size, hidden_size):
+    def __init__(self, input_size, hidden_size, nbuckets):
         super(Feedforward, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.fc1 = torch.nn.Linear(self.input_size, self.hidden_size)
-        self.relu = torch.nn.LeakyReLU()
-        self.fc2 = torch.nn.Linear(self.hidden_size, self.hidden_size // 2)
-        self.relu2 = torch.nn.LeakyReLU()
-        self.fc3 = torch.nn.Linear(self.hidden_size // 2, 1)
-        # self.sigmoid = torch.nn.ReLU()
-        self.sigmoid = torch.nn.Sigmoid()
+        self.layers = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_size, hidden_size // 2),
+            # nn.LeakyReLU(),
+            # nn.Linear(hidden_size // 2, hidden_size // 4),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_size // 2, nbuckets),
+        )
+        print(self)
 
     def forward(self, x):
-        hidden = self.fc1(x)
-        relu = self.relu(hidden)
-        h1 = self.fc2(relu)
-        r2 = self.relu2(h1)
-        output = self.fc3(r2)
-        output = self.sigmoid(output)
-        return output
+        return self.layers(x)
 
 
 rd = RoundsDataset('dataset/supercleanrounds.jsonl',
@@ -87,52 +95,66 @@ valloader = DataLoader(valset, shuffle=False, batch_size=256)
 (vec, money) = rd[0]
 print(f"investment round vec shape {vec.shape}")
 
-model = Feedforward(vec.shape[0], 256)
-dev = torch.device('cuda')
+nbuckets = len(rd.money_buckets)
+model = Feedforward(vec.shape[0], 384, nbuckets)
+dev = torch.device('cpu')
 model.to(dev)
-lossf = MSELoss()
+lossf = CrossEntropyLoss()
 optimizer = Adam(params=model.parameters(), lr=0.001)
-# optimizer = SGD(params=model.parameters(), lr=0.001)
 model.train()
-epoch = 20
+epoch = 100
+prevloss = 100500.
+
 for epoch in range(epoch):
+    print(epoch)
     for i, (vec, money) in enumerate(trainloader):
         optimizer.zero_grad()
         # Forward pass
         money_pred = model(vec.to(dev))
+        if i == 0:
+            print("t:", money[0:10])
+            print("t:", money_pred[0:10].argmax(dim=1))
         # Compute Loss
-        loss = lossf(money_pred.squeeze(), money.to(dev))
+        loss = lossf(money_pred, money.to(dev))
 
         print(f'Epoch {epoch}/{i}: train loss: {loss.item():.6f}')
         # Backward pass
         loss.backward()
         optimizer.step()
-
+    #
     model.eval()
     with torch.no_grad():
         vlosses = []
-        dmoney = torch.tensor([]).to(dev)
-        vmoney = torch.tensor([])
+        #     dmoney = torch.tensor([]).to(dev)
+        #     vmoney = torch.tensor([])
         for i, (vec, money) in enumerate(valloader):
             money_pred = model(vec.to(dev))
-            norm = rd.money_norm
-            expected_money = int(money[0].item() * norm)
-            actual_money = int(money_pred[0].item() * norm)
-            emoney = money.to(dev) * norm
-            amoney = money_pred.squeeze() * norm
-            dd = torch.abs(emoney - amoney)
-            dd = dd * 100 / (amoney + 1)
-            dmoney = torch.cat([dmoney, dd])
-            vmoney = torch.cat([vmoney, money * norm])
-            d = expected_money - actual_money
-            print(
-                f'expected ${int(expected_money / 1000000)}M got ${int(actual_money / 1000000)}M delta ${int(d / 1000000)}M {int(d * 100 / (actual_money + 1))}%')
-            vloss = lossf(money_pred.squeeze(), money.to(dev))
+            if i == 0:
+                print("v:", money[0:10])
+                print("v:", money_pred[0:10].argmax(dim=1))
+            #         norm = rd.money_norm
+            #         expected_money = int(money[0].item() * norm)
+            #         actual_money = int(money_pred[0].item() * norm)
+            #         emoney = money.to(dev) * norm
+            #         amoney = money_pred.squeeze() * norm
+            #         dd = torch.abs(emoney - amoney)
+            #         dd = dd * 100 / (amoney + 1)
+            #         dmoney = torch.cat([dmoney, dd])
+            #         vmoney = torch.cat([vmoney, money * norm])
+            #         d = expected_money - actual_money
+            #         print(
+            #             f'expected ${int(expected_money / 1000000)}M got ${int(actual_money / 1000000)}M delta ${int(d / 1000000)}M {int(d * 100 / (actual_money + 1))}%')
+            vloss = lossf(money_pred, money.to(dev))
             vlosses.append(vloss.item())
         vlosses = np.array(vlosses)
         mvloss = np.median(vlosses)
         meanvloss = np.mean(vlosses)
         print(
-            f'Epoch {epoch}: validation loss: {mvloss:.6f} {meanvloss:.6f} ${int(vmoney.median() / 1000000)}M {int(dmoney.median())}% {int(dmoney.std())}% {int(dmoney.mean())}%')
+            f'Epoch {epoch}: validation loss: {mvloss:.6f} {meanvloss:.6f}')
 
+    if prevloss < min(meanvloss, mvloss):
+        print("overfit detected")
+        # break
+    else:
+        prevloss = min(meanvloss, mvloss)
     model.train()
