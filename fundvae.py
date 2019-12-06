@@ -11,12 +11,33 @@ from datagen import FundsDataset
 # Epoch 50, Train Loss: 7.36, Test Loss (5): 7.25
 # Epoch 116, Train Loss: 0.093, Test Loss (10): 0.083 Best Loss: 0.063
 # Epoch 119, Train Loss: 0.143, Test Loss (10): 0.132 Best Loss: 0.062
+# Epoch 170, Train Loss: 0.042, Test Loss (10): 0.037 Best Loss: 0.035
+# Epoch 233, Train Loss: 0.068, Test Loss (20): 0.143 Best Loss: 0.025
+
+# LATENT_DIM = 32
+# Epoch 140, Train Loss: 0.140, Test Loss (20): 0.051 Best Loss: 0.043
 
 # LATENT_DIM = 10
 # Epoch 32, Train Loss: 12.31, Test Loss (5): 11.20
 
 # Epoch 56, Train Loss: 7.25, Test Loss (5): 6.98
 # Epoch 59, Train Loss: 6.84, Test Loss (1): 7.83
+
+# 512/64
+# Epoch 92, Train Loss: 0.137, Test Loss (20): 0.032 Best Loss: 0.022
+
+# 256/16
+# Epoch 121, Train Loss: 0.033, Test Loss (20): 0.026 Best Loss: 0.021
+
+# 128/16
+# Epoch 156, Train Loss: 0.064, Test Loss (20): 0.039 Best Loss: 0.021
+# Epoch 303, Train Loss: 0.024, Test Loss (40): 0.018 Best Loss: 0.017
+
+# 128/8
+# Epoch 375, Train Loss: 0.022, Test Loss (40): 0.016 Best Loss: 0.015
+
+# 64/16
+# Epoch 163, Train Loss: 0.028, Test Loss (20): 0.024 Best Loss: 0.022
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 funds_dataset = FundsDataset.from_json('dataset/fundprofiles1.json')
@@ -26,10 +47,10 @@ INDUSTRIES = funds_dataset.industries
 BATCH_SIZE = 64  # number of data points in each batch
 N_EPOCHS = 1000  # times to run the model on complete data
 INPUT_DIM = FTYPES * INDUSTRIES  # size of each input
-HIDDEN_DIM = 256  # hidden dimension
-LATENT_DIM = 20  # latent vector dimension
-PATIENCE = 10
-lr = 1e-3  # learning rate
+HIDDEN_DIM = 64  # hidden dimension
+LATENT_DIM = 8    # latent vector dimension
+PATIENCE = 40
+lr = 0.0005  # learning rate
 
 train_dataset, test_dataset = funds_dataset.split(80)
 print('funds_dataset', len(funds_dataset), 'train_dataset', len(train_dataset), 'test_dataset', len(test_dataset))
@@ -152,7 +173,10 @@ def test():
             x_sample, z_mu, z_var = model(x)
 
             # reconstruction loss
-            recon_loss = F.binary_cross_entropy(x_sample, x, reduction='mean')
+            recon_loss = F.binary_cross_entropy(x_sample, x, reduction='none')
+            mask = (((x.detach() != 0) * 1) + 0.1).clamp(0, 1)
+            recon_loss = recon_loss * mask
+            recon_loss = recon_loss.mean()
 
             # kl divergence loss
             kl_loss = 0.5 * torch.sum(torch.exp(z_var) + z_mu ** 2 - 1.0 - z_var)
@@ -183,7 +207,10 @@ def train():
         x_sample, z_mu, z_var = model(x)
 
         # reconstruction loss
-        recon_loss = F.binary_cross_entropy(x_sample, x, reduction='mean')
+        recon_loss = F.binary_cross_entropy(x_sample, x, reduction='none')
+        mask = (((x.detach() != 0) * 1) + 0.1).clamp(0, 1)
+        recon_loss = recon_loss * mask
+        recon_loss = recon_loss.mean()
 
         # kl divergence loss
         kl_loss = 0.5 * torch.sum(torch.exp(z_var) + z_mu ** 2 - 1.0 - z_var)
@@ -228,8 +255,9 @@ for e in range(N_EPOCHS):
 model.load_state_dict(torch.load('bestvae.pth'))
 
 model.eval()
-with torch.no_grad():
-    expected = test_dataset[42].to(device)
+
+
+def reconstruct(expected):
     actual, _, _ = model(expected.view(-1, INPUT_DIM))
     view = actual.view(FTYPES, INDUSTRIES)
     for ftype, industries in enumerate(view):
@@ -243,3 +271,9 @@ with torch.no_grad():
             print('actual  :', a.squeeze().cpu().numpy())
             print('expected:', expected[ftype].median().item())
             print('actual  :', industries.median().item())
+
+
+with torch.no_grad():
+    reconstruct(test_dataset[42].to(device))
+    reconstruct(test_dataset[142].to(device))
+    reconstruct(test_dataset[242].to(device))

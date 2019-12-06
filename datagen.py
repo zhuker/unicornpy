@@ -213,7 +213,7 @@ class FundsDataset(Dataset):
         copy = list(self.fundprofiles)
         chunks = _buckets(copy, lambda x: len(x[-1]), nbuckets=12)
 
-        rnd = np.random.RandomState(31374243)
+        rnd = np.random.RandomState(31372719)
 
         train_fds = []
         test_fds = []
