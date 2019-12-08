@@ -6,7 +6,7 @@ import json
 from torch.utils.data import Dataset, random_split
 import numpy.linalg as LA
 
-from constants import FUNDINGTYPES, INDUSTRIES
+from constants import FUNDINGTYPES, INDUSTRIES, SORTED_INDUSTRIES_IDXS
 
 
 def _buckets(whatever: List, keyfun, nbuckets: int = 10) -> List[List]:
@@ -184,12 +184,13 @@ class RoundsDataset(Dataset):
         # return torch.cat([ts, ti, tfstage, tftype], dim=0), tm
 
 
-def _fundprofile2tensor(fundprofile, money_norm: float) -> torch.Tensor:
+def _fundprofile2tensor(fundprofile, money_norms: Dict[int, float]) -> torch.Tensor:
     t = torch.zeros((FUNDINGTYPES, INDUSTRIES))
     fundname, x = fundprofile
     for X in x:
         ftype, ind, money = X
-        t[ftype, ind] = money / money_norm
+        t[ftype, ind] = money / money_norms[ftype]
+    t = t[:, SORTED_INDUSTRIES_IDXS]
     return t
 
 
@@ -200,17 +201,23 @@ class FundsDataset(Dataset):
         with open(fundprofiles_json_path, 'r') as f:
             fundprofiles = list(json.load(f).items())
 
-        money = []
+        ftype2money = {}
         for f, x in fundprofiles:
             for y in x:
-                money.append(y[-1])
-        money_norm = LA.norm(np.array(money), 2)
+                ftype, ind, money = y
+                if ftype not in ftype2money:
+                    ftype2money[ftype] = []
+                ftype2money[ftype].append(money)
 
-        return FundsDataset(fundprofiles, money_norm)
+        moneynorms: Dict[int, float] = {}
+        for ftype, money in ftype2money.items():
+            moneynorms[ftype] = LA.norm(money, 2)
 
-    def __init__(self, fundprofiles, money_norm):
+        return FundsDataset(fundprofiles, moneynorms)
+
+    def __init__(self, fundprofiles, money_norms: Dict[int, float]):
         self.fundprofiles = fundprofiles
-        self.money_norm = money_norm
+        self.money_norm = money_norms
 
     def __getitem__(self, item: int):
         fundprofile = self.fundprofiles[item]

@@ -4,20 +4,14 @@ from torch import nn
 
 import datagen
 from constants import UNIQ_INDUSTRIES, UNIQ_FUNDINGTYPES, INDUSTRIES, FUNDINGTYPES
-from fundvae import Encoder, INPUT_DIM, HIDDEN_DIM, LATENT_DIM, Decoder, VAE
+from fundvae import Encoder, INPUT_DIM, HIDDEN_DIM, LATENT_DIM, Decoder, VAE, showplot
 import matplotlib.pyplot as plt
 
 assert len(UNIQ_INDUSTRIES) == INDUSTRIES
 assert len(UNIQ_FUNDINGTYPES) == FUNDINGTYPES
 
 
-def showplot(expected, actual):
-    plt.figure()
-    ax1 = plt.subplot(211)
-    ax2 = plt.subplot(212)
-    ax1.imshow(expected.view(FUNDINGTYPES, INDUSTRIES).cpu())
-    ax2.imshow(actual.view(FUNDINGTYPES, INDUSTRIES).cpu())
-    plt.show()
+
 
 
 encoder = Encoder(INPUT_DIM, HIDDEN_DIM, LATENT_DIM)
@@ -53,7 +47,7 @@ with torch.no_grad():
         r.append([_mse.item(), _msenz.item(), expected, actual])
 
 rs = sorted(r, key=lambda x: x[0])
-m, mnz, expected, actual = rs[0]
+m, mnz, expected, actual = rs[1]
 showplot(expected, actual)
 # for m, mnz, expected, actual in rs:
 #     e = expected[expected != 0]

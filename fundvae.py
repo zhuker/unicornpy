@@ -1,11 +1,13 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
 
 from datagen import FundsDataset
-from constants import FUNDINGTYPES, INDUSTRIES
+from constants import FUNDINGTYPES, INDUSTRIES, SORTED_INDUSTRIES_IDXS, UNIQ_INDUSTRIES
 
 # LATENT_DIM = 20
 # Epoch 19, Train Loss: 13.13, Test Loss: 11.86
@@ -43,8 +45,8 @@ from constants import FUNDINGTYPES, INDUSTRIES
 BATCH_SIZE = 64  # number of data points in each batch
 N_EPOCHS = 1000  # times to run the model on complete data
 INPUT_DIM = FUNDINGTYPES * INDUSTRIES  # size of each input
-HIDDEN_DIM = 128  # hidden dimension
-LATENT_DIM = 16  # latent vector dimension
+HIDDEN_DIM = 1024  # hidden dimension
+LATENT_DIM = 96  # latent vector dimension
 PATIENCE = 40
 lr = 0.0005  # learning rate
 
@@ -63,13 +65,16 @@ class Encoder(nn.Module):
         super().__init__()
 
         self.linear = nn.Linear(input_dim, hidden_dim)
-        self.mu = nn.Linear(hidden_dim, z_dim)
-        self.var = nn.Linear(hidden_dim, z_dim)
+        self.linear2 = nn.Linear(hidden_dim, hidden_dim // 2)
+        self.linear3 = nn.Linear(hidden_dim // 2, hidden_dim // 4)
+        self.linear4 = nn.Linear(hidden_dim // 4, hidden_dim // 8)
+        self.mu = nn.Linear(hidden_dim // 8, z_dim)
+        self.var = nn.Linear(hidden_dim // 8, z_dim)
 
     def forward(self, x):
         # x is of shape [batch_size, input_dim]
 
-        hidden = F.relu(self.linear(x))
+        hidden = F.relu(self.linear4(self.linear3(self.linear2(self.linear(x)))))
         # hidden is of shape [batch_size, hidden_dim]
         z_mu = self.mu(hidden)
         # z_mu is of shape [batch_size, latent_dim]
@@ -92,13 +97,16 @@ class Decoder(nn.Module):
         '''
         super().__init__()
 
-        self.linear = nn.Linear(z_dim, hidden_dim)
+        self.linear = nn.Linear(z_dim, hidden_dim // 8)
+        self.linear1 = nn.Linear(hidden_dim // 8, hidden_dim // 4)
+        self.linear2 = nn.Linear(hidden_dim // 4, hidden_dim // 2)
+        self.linear3 = nn.Linear(hidden_dim // 2, hidden_dim)
         self.out = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, x):
         # x is of shape [batch_size, latent_dim]
 
-        hidden = F.relu(self.linear(x))
+        hidden = F.relu(self.linear3(self.linear2(self.linear1(self.linear(x)))))
         # hidden is of shape [batch_size, hidden_dim]
 
         predicted = torch.sigmoid(self.out(hidden))
@@ -130,12 +138,13 @@ class VAE(nn.Module):
         # decode
         predicted = self.dec(x_sample)
 
-
         return predicted, z_mu, z_var
 
 
-# reconstruction_lossf = nn.BCELoss(reduction='none')
-reconstruction_lossf = nn.MSELoss(reduction='none')
+reconstruction_lossf = nn.BCELoss(reduction='none')
+
+
+# reconstruction_lossf = nn.MSELoss(reduction='none')
 
 
 def test():
@@ -211,9 +220,32 @@ def train():
     return train_loss
 
 
+def showplot(expected, actual):
+    expected = expected.view(FUNDINGTYPES, INDUSTRIES).cpu()
+    actual = actual.view(FUNDINGTYPES, INDUSTRIES).cpu()
+    plt.figure(figsize=(8, 6))
+    ax1 = plt.subplot(211)
+    ax2 = plt.subplot(212)
+    ax1.imshow(expected)
+    ax2.imshow(actual)
+    plt.show()
+
+
+def showplot2(expected, actual):
+    expected = expected.view(FUNDINGTYPES, INDUSTRIES)
+    actual = actual.view(FUNDINGTYPES, INDUSTRIES)
+    s = torch.cat((expected, actual))
+    plt.figure()
+    plt.imshow(s.cpu())
+    plt.show()
+
+
 if __name__ == '__main__':
+    for i, name in enumerate(np.array(UNIQ_INDUSTRIES)[SORTED_INDUSTRIES_IDXS]):
+        print(i, name)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(device)
     funds_dataset = FundsDataset.from_json('dataset/investor_profiles.json')
     train_dataset, test_dataset = funds_dataset.split(80)
     print('funds_dataset', len(funds_dataset), 'train_dataset', len(train_dataset), 'test_dataset', len(test_dataset))
@@ -226,6 +258,7 @@ if __name__ == '__main__':
 
     # vae
     model = VAE(encoder, decoder).to(device)
+    print(model)
 
     # optimizer
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -234,6 +267,7 @@ if __name__ == '__main__':
     test_iterator = DataLoader(test_dataset, batch_size=BATCH_SIZE)
     best_test_loss = float('inf')
     patience_counter = 1
+    save_path = 'best4layer_vae.pth'
     for e in range(N_EPOCHS):
         train_loss = train()
         test_loss = test()
@@ -246,7 +280,7 @@ if __name__ == '__main__':
 
         if best_test_loss > test_loss:
             best_test_loss = test_loss
-            torch.save(model.state_dict(), 'bestvae.pth')
+            torch.save(model.state_dict(), save_path)
             patience_counter = 1
         else:
             patience_counter += 1
@@ -261,6 +295,7 @@ if __name__ == '__main__':
     def reconstruct(expected):
         actual, _, _ = model(expected.view(-1, INPUT_DIM))
         view = actual.view(FUNDINGTYPES, INDUSTRIES)
+        showplot(expected, actual)
         for ftype, industries in enumerate(view):
             nonzero = (expected[ftype] != 0).sum().item()
             if nonzero > 0:
@@ -276,24 +311,29 @@ if __name__ == '__main__':
                 print('actual  :', industries.median().item())
 
 
-    model.load_state_dict(torch.load('bestvae.pth'))
+    model.load_state_dict(torch.load(save_path))
 
     model.eval()
 
+    r = []
     with torch.no_grad():
-        reconstruct(test_dataset[42].to(device))
-        reconstruct(test_dataset[142].to(device))
-        reconstruct(test_dataset[242].to(device))
+        for i, expected in enumerate(test_dataset):
+            expected = expected.to(device)
+            actual, _, _ = model(expected.view(-1, INPUT_DIM))
+            actual = actual.view(FUNDINGTYPES, INDUSTRIES)
+            _mse = reconstruction_lossf(expected, actual).mean()
+            nz = expected.nonzero()
+            expected_ = expected != 0
+            e = expected[expected_]
+            a = actual[expected_]
+            _msenz = mse(e, a)
+            r.append([_mse.item(), _msenz.item(), expected, actual])
 
-    r = {}
-    for i, expected in enumerate(test_dataset):
-        actual, _, _ = model(expected.view(-1, INPUT_DIM))
-        view = actual.view(FUNDINGTYPES, INDUSTRIES)
-        for ftype, industries in enumerate(view):
-            nonzero = (expected[ftype] != 0).sum().item()
-            if nonzero > 0:
-                nz = expected[ftype].nonzero()
-                e = expected[ftype][nz]
-                a = industries[nz]
-                _mse = mse(e, a)
-                r[i] = _mse.item()
+    rs = sorted(r, key=lambda x: x[0])
+    print('reconstruction loss: best medium worst', rs[0][0], rs[len(rs) // 2][0], rs[-1][0])
+    m, mnz, expected, actual = rs[0]
+    showplot(expected, actual)
+    m, mnz, expected, actual = rs[len(rs) // 2]
+    showplot(expected, actual)
+    m, mnz, expected, actual = rs[-1]
+    showplot(expected, actual)
