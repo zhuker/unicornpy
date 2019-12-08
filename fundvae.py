@@ -2,9 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 
 from datagen import FundsDataset
+from constants import FUNDINGTYPES, INDUSTRIES
 
 # LATENT_DIM = 20
 # Epoch 19, Train Loss: 13.13, Test Loss: 11.86
@@ -39,21 +40,13 @@ from datagen import FundsDataset
 # 64/16
 # Epoch 163, Train Loss: 0.028, Test Loss (20): 0.024 Best Loss: 0.022
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-funds_dataset = FundsDataset.from_json('dataset/fundprofiles1.json')
-FTYPES = funds_dataset.ftypes
-INDUSTRIES = funds_dataset.industries
-
 BATCH_SIZE = 64  # number of data points in each batch
 N_EPOCHS = 1000  # times to run the model on complete data
-INPUT_DIM = FTYPES * INDUSTRIES  # size of each input
-HIDDEN_DIM = 64  # hidden dimension
-LATENT_DIM = 8    # latent vector dimension
+INPUT_DIM = FUNDINGTYPES * INDUSTRIES  # size of each input
+HIDDEN_DIM = 128  # hidden dimension
+LATENT_DIM = 16  # latent vector dimension
 PATIENCE = 40
 lr = 0.0005  # learning rate
-
-train_dataset, test_dataset = funds_dataset.split(80)
-print('funds_dataset', len(funds_dataset), 'train_dataset', len(train_dataset), 'test_dataset', len(test_dataset))
 
 
 class Encoder(nn.Module):
@@ -124,35 +117,25 @@ class VAE(nn.Module):
         self.enc = enc
         self.dec = dec
 
-    def forward(self, x):
+    def forward(self, expected):
         # encode
-        z_mu, z_var = self.enc(x)
+        z_mu, z_var = self.enc(expected)
 
         # sample from the distribution having latent parameters z_mu, z_var
         # reparameterize
         std = torch.exp(z_var / 2)
         eps = torch.randn_like(std)
-        x_sample = eps.mul(std).add_(z_mu)
+        x_sample = eps * std - z_mu
 
         # decode
         predicted = self.dec(x_sample)
+
+
         return predicted, z_mu, z_var
 
 
-# encoder
-encoder = Encoder(INPUT_DIM, HIDDEN_DIM, LATENT_DIM)
-
-# decoder
-decoder = Decoder(LATENT_DIM, HIDDEN_DIM, INPUT_DIM)
-
-# vae
-model = VAE(encoder, decoder).to(device)
-
-# optimizer
-optimizer = optim.Adam(model.parameters(), lr=lr)
-
-train_iterator = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-test_iterator = DataLoader(test_dataset, batch_size=BATCH_SIZE)
+# reconstruction_lossf = nn.BCELoss(reduction='none')
+reconstruction_lossf = nn.MSELoss(reduction='none')
 
 
 def test():
@@ -173,7 +156,7 @@ def test():
             x_sample, z_mu, z_var = model(x)
 
             # reconstruction loss
-            recon_loss = F.binary_cross_entropy(x_sample, x, reduction='none')
+            recon_loss = reconstruction_lossf(x_sample, x)
             mask = (((x.detach() != 0) * 1) + 0.1).clamp(0, 1)
             recon_loss = recon_loss * mask
             recon_loss = recon_loss.mean()
@@ -207,7 +190,7 @@ def train():
         x_sample, z_mu, z_var = model(x)
 
         # reconstruction loss
-        recon_loss = F.binary_cross_entropy(x_sample, x, reduction='none')
+        recon_loss = reconstruction_lossf(x_sample, x)
         mask = (((x.detach() != 0) * 1) + 0.1).clamp(0, 1)
         recon_loss = recon_loss * mask
         recon_loss = recon_loss.mean()
@@ -228,52 +211,89 @@ def train():
     return train_loss
 
 
-best_test_loss = float('inf')
+if __name__ == '__main__':
 
-patience_counter = 1
-for e in range(N_EPOCHS):
-    train_loss = train()
-    test_loss = test()
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    funds_dataset = FundsDataset.from_json('dataset/investor_profiles.json')
+    train_dataset, test_dataset = funds_dataset.split(80)
+    print('funds_dataset', len(funds_dataset), 'train_dataset', len(train_dataset), 'test_dataset', len(test_dataset))
 
-    train_loss /= len(train_dataset)
-    test_loss /= len(test_dataset)
+    # encoder
+    encoder = Encoder(INPUT_DIM, HIDDEN_DIM, LATENT_DIM)
 
-    print(
-        f'Epoch {e}, Train Loss: {train_loss * 100000:.3f}, Test Loss ({patience_counter}): {test_loss * 100000:.3f} Best Loss: {best_test_loss * 100000:.3f}')
+    # decoder
+    decoder = Decoder(LATENT_DIM, HIDDEN_DIM, INPUT_DIM)
 
-    if best_test_loss > test_loss:
-        best_test_loss = test_loss
-        torch.save(model.state_dict(), 'bestvae.pth')
-        patience_counter = 1
-    else:
-        patience_counter += 1
+    # vae
+    model = VAE(encoder, decoder).to(device)
 
-    if patience_counter > PATIENCE:
-        print("overfit detected")
-        break
+    # optimizer
+    optimizer = optim.Adam(model.parameters(), lr=lr)
 
-model.load_state_dict(torch.load('bestvae.pth'))
+    train_iterator = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    test_iterator = DataLoader(test_dataset, batch_size=BATCH_SIZE)
+    best_test_loss = float('inf')
+    patience_counter = 1
+    for e in range(N_EPOCHS):
+        train_loss = train()
+        test_loss = test()
 
-model.eval()
+        train_loss /= len(train_dataset)
+        test_loss /= len(test_dataset)
+
+        print(
+            f'Epoch {e}, Train Loss: {train_loss * 100000:.3f}, Test Loss ({patience_counter}): {test_loss * 100000:.3f} Best Loss: {best_test_loss * 100000:.3f}')
+
+        if best_test_loss > test_loss:
+            best_test_loss = test_loss
+            torch.save(model.state_dict(), 'bestvae.pth')
+            patience_counter = 1
+        else:
+            patience_counter += 1
+
+        if patience_counter > PATIENCE:
+            print("overfit detected")
+            break
+
+    mse = nn.MSELoss()
 
 
-def reconstruct(expected):
-    actual, _, _ = model(expected.view(-1, INPUT_DIM))
-    view = actual.view(FTYPES, INDUSTRIES)
-    for ftype, industries in enumerate(view):
-        nonzero = (expected[ftype] != 0).sum().item()
-        if nonzero > 0:
-            print(ftype, nonzero)
-            nz = expected[ftype].nonzero()
-            e = expected[ftype][nz]
-            a = industries[nz]
-            print('expected:', e.squeeze().cpu().numpy())
-            print('actual  :', a.squeeze().cpu().numpy())
-            print('expected:', expected[ftype].median().item())
-            print('actual  :', industries.median().item())
+    def reconstruct(expected):
+        actual, _, _ = model(expected.view(-1, INPUT_DIM))
+        view = actual.view(FUNDINGTYPES, INDUSTRIES)
+        for ftype, industries in enumerate(view):
+            nonzero = (expected[ftype] != 0).sum().item()
+            if nonzero > 0:
+                print(ftype, nonzero)
+                nz = expected[ftype].nonzero()
+                e = expected[ftype][nz]
+                a = industries[nz]
+                _mse = mse(e, a)
+                print('expected:', e.squeeze().cpu().numpy())
+                print('actual  :', a.squeeze().cpu().numpy())
+                print('mse     :', _mse.item())
+                print('expected:', expected[ftype].median().item())
+                print('actual  :', industries.median().item())
 
 
-with torch.no_grad():
-    reconstruct(test_dataset[42].to(device))
-    reconstruct(test_dataset[142].to(device))
-    reconstruct(test_dataset[242].to(device))
+    model.load_state_dict(torch.load('bestvae.pth'))
+
+    model.eval()
+
+    with torch.no_grad():
+        reconstruct(test_dataset[42].to(device))
+        reconstruct(test_dataset[142].to(device))
+        reconstruct(test_dataset[242].to(device))
+
+    r = {}
+    for i, expected in enumerate(test_dataset):
+        actual, _, _ = model(expected.view(-1, INPUT_DIM))
+        view = actual.view(FUNDINGTYPES, INDUSTRIES)
+        for ftype, industries in enumerate(view):
+            nonzero = (expected[ftype] != 0).sum().item()
+            if nonzero > 0:
+                nz = expected[ftype].nonzero()
+                e = expected[ftype][nz]
+                a = industries[nz]
+                _mse = mse(e, a)
+                r[i] = _mse.item()

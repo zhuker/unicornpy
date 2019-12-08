@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict
 
 import numpy as np
 import torch
@@ -6,35 +6,15 @@ import json
 from torch.utils.data import Dataset, random_split
 import numpy.linalg as LA
 
-
-def _money_buckets(money: List[int], nbuckets: int = 10) -> List[range]:
-    smoney = sorted(money)
-    chunks = []
-    chunk = []
-    chunksize = len(smoney) // nbuckets
-    for m in smoney:
-        if len(chunk) >= chunksize and m != chunk[-1]:
-            chunks.append(chunk)
-            chunk = []
-        chunk.append(m)
-    if len(chunk) != 0:
-        chunks.append(chunk)
-
-    for current, _next in zip(chunks, chunks[1:]):
-        current[-1] = _next[0] - 1
-
-    ranges = [range(chunk[0], chunk[-1] + 1) for chunk in chunks]
-    for r in ranges:
-        print(r)
-    return ranges
+from constants import FUNDINGTYPES, INDUSTRIES
 
 
 def _buckets(whatever: List, keyfun, nbuckets: int = 10) -> List[List]:
-    smoney = sorted(whatever, key=keyfun)
+    sortedlist = sorted(whatever, key=keyfun)
     chunks = []
     chunk = []
-    chunksize = len(smoney) // nbuckets
-    for m in smoney:
+    chunksize = len(sortedlist) // nbuckets
+    for m in sortedlist:
         if len(chunk) >= chunksize and keyfun(m) != keyfun(chunk[-1]):
             chunks.append(chunk)
             chunk = []
@@ -45,24 +25,71 @@ def _buckets(whatever: List, keyfun, nbuckets: int = 10) -> List[List]:
     return chunks
 
 
+def _money_buckets(money: List[int], nbuckets: int = 10) -> List[range]:
+    chunks = _buckets(money, lambda x: x, nbuckets)
+    for current, _next in zip(chunks, chunks[1:]):
+        current[-1] = _next[0] - 1
+
+    ranges = [range(chunk[0], chunk[-1] + 1) for chunk in chunks]
+    for r in ranges:
+        print(r)
+    return ranges
+
+
+def _read_rounds_jsonl(rounds_jsonl: str) -> List:
+    with(open(rounds_jsonl, "r")) as f:
+        return list(map(lambda line: json.loads(line), f.readlines()))
+
+
+def _read_funds_jsonl(funds_jsonl: str) -> Dict:
+    with(open(funds_jsonl)) as f:
+        funds = {f['name']: f for f in map(lambda line: json.loads(line), f.readlines())}
+    for (name, fund) in funds.items():
+        if fund.get('country', '') == 'New York':
+            fund['country'] = 'United States'
+    return funds
+
+
+def _read_startups_jsonl(startups_jsonl: str) -> Dict:
+    with(open(startups_jsonl)) as f:
+        startups = {f['company']: f for f in map(lambda line: json.loads(line), f.readlines())}
+    for (name, startup) in startups.items():
+        if startup.get('country', '') == 'New York':
+            startup['country'] = 'United States'
+    return startups
+
+
+def _countries(funds, startups) -> List[str]:
+    scountries = [startup.get('country', '') for (name, startup) in startups.items()]
+    fcountries = [fund.get('country', '') for (name, fund) in funds.items()]
+    countries = sorted(list(filter(lambda x: x != '', set(scountries + fcountries))))
+    return countries
+
+
+def _read_startup_industries_tsv(startup_industry_embs_tsv: str) -> Dict:
+    sie = {}
+    with(open(startup_industry_embs_tsv)) as f:
+        for line in f.readlines():
+            tokens = line.strip().split("\t")
+            industry = tokens[0].replace('#', '')
+            vector = np.array(list(map(lambda x: float(x), tokens[1:])))
+            sie[industry] = vector
+    return sie
+
+
 class RoundsDataset(Dataset):
     def __init__(self, roundsjsonlpath: str, fundindustiesjson: str, fundindustryembstsv: str, startupsjsonl: str,
                  startup_industry_embs_tsv: str, funds_jsonl: str):
-        with(open(roundsjsonlpath, "r")) as f:
-            lines = f.readlines()
-            self.rounds = list(map(lambda line: json.loads(line), lines))
+        self.rounds = _read_rounds_jsonl(roundsjsonlpath)
         money = list(map(lambda x: int(x['moneyRaised']), self.rounds))
         self.fstages = list(set(map(lambda x: x.get('fundingStage', ''), self.rounds)))
         self.ftypes = list(set(map(lambda x: x['fundingType'], self.rounds)))
         self.money_norm = LA.norm(np.array(money), 2)
         self.money_buckets = _money_buckets(money)
 
-        with(open(funds_jsonl)) as f:
-            self.funds = {f['name']: f for f in map(lambda line: json.loads(line), f.readlines())}
-
-        for (name, fund) in self.funds.items():
-            if fund.get('country', '') == 'New York':
-                fund['country'] = 'United States'
+        self.funds = _read_funds_jsonl(funds_jsonl)
+        self.startups = _read_startups_jsonl(startupsjsonl)
+        self.countries = _countries(self.funds, self.startups)
 
         with(open(fundindustiesjson)) as f:
             self.fund2industries = json.load(f)
@@ -75,27 +102,7 @@ class RoundsDataset(Dataset):
                 industry = tokens[0].replace('#', '')
                 vector = np.array(list(map(lambda x: float(x), tokens[1:])))
                 self.fie[industry] = vector
-
-        with(open(startupsjsonl, "r")) as f:
-            lines = f.readlines()
-            self.startups = {s['company']: s for s in map(lambda line: json.loads(line), lines)}
-
-        for (name, startup) in self.startups.items():
-            if startup.get('country', '') == 'New York':
-                startup['country'] = 'United States'
-
-        with(open(startup_industry_embs_tsv)) as f:
-            lines = f.readlines()
-            self.sie = {}
-            for line in lines:
-                tokens = line.strip().split("\t")
-                industry = tokens[0].replace('#', '')
-                vector = np.array(list(map(lambda x: float(x), tokens[1:])))
-                self.sie[industry] = vector
-
-        scountries = [startup.get('country', '') for (name, startup) in self.startups.items()]
-        fcountries = [fund.get('country', '') for (name, fund) in self.funds.items()]
-        self.countries = sorted(list(filter(lambda x: x != '', set(scountries + fcountries))))
+        self.sie = _read_startup_industries_tsv(startup_industry_embs_tsv)
 
     def __len__(self):
         return len(self.rounds)
@@ -177,7 +184,17 @@ class RoundsDataset(Dataset):
         # return torch.cat([ts, ti, tfstage, tftype], dim=0), tm
 
 
+def _fundprofile2tensor(fundprofile, money_norm: float) -> torch.Tensor:
+    t = torch.zeros((FUNDINGTYPES, INDUSTRIES))
+    fundname, x = fundprofile
+    for X in x:
+        ftype, ind, money = X
+        t[ftype, ind] = money / money_norm
+    return t
+
+
 class FundsDataset(Dataset):
+
     @staticmethod
     def from_json(fundprofiles_json_path: str):
         with open(fundprofiles_json_path, 'r') as f:
@@ -192,19 +209,12 @@ class FundsDataset(Dataset):
         return FundsDataset(fundprofiles, money_norm)
 
     def __init__(self, fundprofiles, money_norm):
-        self.industries = 656
-        self.ftypes = 27
         self.fundprofiles = fundprofiles
         self.money_norm = money_norm
 
     def __getitem__(self, item: int):
-        t = torch.zeros((self.ftypes, self.industries))
-        f, x = self.fundprofiles[item]
-        for X in x:
-            ftype, ind, money = X
-            t[ftype, ind] = money / self.money_norm
-
-        return t
+        fundprofile = self.fundprofiles[item]
+        return _fundprofile2tensor(fundprofile, self.money_norm)
 
     def __len__(self):
         return len(self.fundprofiles)
@@ -233,6 +243,103 @@ class FundsDataset(Dataset):
         train_dataset = FundsDataset(train_fds, self.money_norm)
 
         return train_dataset, test_dataset
+
+
+class RoundsDataset2(Dataset):
+    def __init__(self, roundsjsonlpath: str, investorsjson: str, leadinvestorsjson: str, startupsjsonl: str,
+                 startup_industry_embs_tsv: str, funds_jsonl: str):
+        self.investors = FundsDataset.from_json(investorsjson).fundprofiles
+        self.lead_investors = FundsDataset.from_json(leadinvestorsjson).fundprofiles
+
+        self.rounds = _read_rounds_jsonl(roundsjsonlpath)
+        money = list(map(lambda x: int(x['moneyRaised']), self.rounds))
+        self.fstages = list(set(map(lambda x: x.get('fundingStage', ''), self.rounds)))
+        self.ftypes = list(set(map(lambda x: x['fundingType'], self.rounds)))
+        self.money_norm = LA.norm(np.array(money), 2)
+        self.money_buckets = _money_buckets(money)
+        self.funds = _read_funds_jsonl(funds_jsonl)
+        self.startups = _read_startups_jsonl(startupsjsonl)
+        self.countries = _countries(self.funds, self.startups)
+        self.sie = _read_startup_industries_tsv(startup_industry_embs_tsv)
+
+    def __len__(self):
+        return len(self.rounds)
+
+    def _startup_vector(self, company):
+        s = self.startups[company]
+        assert s is not None
+        industries = list(map(lambda ind: ind.lower().replace(" ", "_"), s['industries']))
+        for industry in industries:
+            assert industry in self.sie
+
+        vecs = np.array([self.sie[industry] for industry in industries])
+        vs = np.sum(vecs, axis=0)
+        n = LA.norm(vs, 2)
+        vs /= n
+        return vs
+
+    def _fund_vector(self, fund):
+        industries = self.fund2industries[fund]
+        assert industries is not None
+        for industry in industries:
+            assert industry in self.fie
+
+        vecs = np.array([self.fie[industry] * weight for (industry, weight) in industries.items()])
+        vs = np.sum(vecs, axis=0)
+        n = LA.norm(vs, 2)
+        vs /= n
+        return vs
+
+    def _investors_emb(self, funds) -> np.ndarray:
+        for fund in funds:
+            assert fund in self.fund2industries
+        assert funds is not None
+        fv = np.array([self._fund_vector(fund) for fund in funds])
+        investors_emb = np.sum(fv, axis=0)
+        n = LA.norm(investors_emb, 2)
+        investors_emb /= n
+        return investors_emb
+
+    def __getitem__(self, item: int):
+        r = self.rounds[item]
+        startup_emb = self._startup_vector(r['company'])
+        investors_emb = self._investors_emb(r['investors'])
+        money = int(r['moneyRaised'])
+
+        ts = torch.tensor(startup_emb.astype(np.float32))
+        ti = torch.tensor(investors_emb.astype(np.float32))
+
+        fstage = self.fstages.index(r.get('fundingStage', ''))
+        ftype = self.ftypes.index(r['fundingType'])
+        tfstage = torch.zeros(len(self.fstages))
+        tftype = torch.zeros(len(self.ftypes))
+        tfstage[fstage] = 1
+        tftype[ftype] = 1
+
+        sc = self.startups[r['company']].get('country', '')
+        fcs = set(map(lambda f: self.funds[f].get('country', ''), filter(lambda f: f in self.funds, r['investors'])))
+        tsc = torch.zeros(len(self.countries))
+        tfcs = torch.zeros(len(self.countries))
+        if sc in self.countries:
+            tsc[self.countries.index(sc)] = 1
+        for fc in fcs:
+            if fc in self.countries:
+                tfcs[self.countries.index(fc)] = 1
+
+        year = int(r.get('dealDate', r.get('announcedDate', '0')).split('-')[0])
+        # ty = torch.tensor([year])
+
+        bucketidx = -1
+        for i, bucket in enumerate(self.money_buckets):
+            if money in bucket:
+                bucketidx = i
+                break
+        assert bucketidx >= 0
+
+        tm = torch.tensor(bucketidx)
+        # return torch.cat([ts, ti, tfstage, tftype, tsc, tfcs], dim=0), tm
+        return torch.cat([ts, tfstage, tftype], dim=0), tm
+        # return torch.cat([ts, ti, tfstage, tftype], dim=0), tm
 
 
 if __name__ == '__main__':
