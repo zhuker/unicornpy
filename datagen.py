@@ -6,9 +6,6 @@ import json
 from torch.utils.data import Dataset, random_split
 import numpy.linalg as LA
 
-from constants import FUNDINGTYPES, INDUSTRIES, SORTED_INDUSTRIES_IDXS
-
-
 def _buckets(whatever: List, keyfun, nbuckets: int = 10) -> List[List]:
     sortedlist = sorted(whatever, key=keyfun)
     chunks = []

@@ -3,16 +3,9 @@ import torch
 from torch import nn
 
 import datagen
-from constants import UNIQ_INDUSTRIES, UNIQ_FUNDINGTYPES, INDUSTRIES, FUNDINGTYPES
+from dataset import UnicornDataset
 from fundvae import Encoder, INPUT_DIM, HIDDEN_DIM, LATENT_DIM, Decoder, VAE, showplot
 import matplotlib.pyplot as plt
-
-assert len(UNIQ_INDUSTRIES) == INDUSTRIES
-assert len(UNIQ_FUNDINGTYPES) == FUNDINGTYPES
-
-
-
-
 
 encoder = Encoder(INPUT_DIM, HIDDEN_DIM, LATENT_DIM)
 
@@ -31,13 +24,15 @@ funds_dataset = datagen.FundsDataset.from_json('dataset/investor_profiles.json')
 train_dataset, test_dataset = funds_dataset.split(80)
 test_dataset.fundprofiles = sorted(test_dataset.fundprofiles, key=lambda x: len(x[1]), reverse=True)
 
+d1 = UnicornDataset.dataset1()
+
 r = []
 with torch.no_grad():
     mse = nn.MSELoss()
     for i, expected in enumerate(test_dataset):
         expected = expected.to(device)
         actual, _, _ = model(expected.view(-1, INPUT_DIM))
-        actual = actual.view(FUNDINGTYPES, INDUSTRIES)
+        actual = actual.view(d1.shape())
         _mse = mse(expected, actual)
         nz = expected.nonzero()
         expected_ = expected != 0

@@ -4,11 +4,14 @@ import numpy as np
 from sklearn.manifold import TSNE
 
 import datagen
-from constants import UNIQ_INDUSTRIES
+from dataset import UnicornDataset
 
-uniqinds = [x.lower().replace(' ', '_') for x in UNIQ_INDUSTRIES]
+ud = UnicornDataset.from_json('dataset2/startups2.jsonl', 'dataset2/rounds2.jsonl')
+uniqinds = [x.lower().replace(' ', '_') for x in ud.uniq_industries]
+for i, ind in enumerate(uniqinds):
+    print(i, ind)
 
-sie = datagen._read_startup_industries_tsv('dataset/startup_industries.tsv')
+sie = datagen._read_startup_industries_tsv('dataset2/industry_emb2_t5.tsv')
 print(len(sie))
 names = [name for name, vec in sie.items()]
 assert len(set(names) - set(uniqinds)) == 0
@@ -29,3 +32,5 @@ for idx, (i, v) in enumerate(sd):
     print(idx, i, names[i], uniqinds.index(names[i]))
 
 print(json.dumps([uniqinds.index(names[i]) for i, v in sd]))
+with open('dataset2/industry_sort.json', 'w') as f:
+    f.write(json.dumps([uniqinds.index(names[i]) for i, v in sd]))

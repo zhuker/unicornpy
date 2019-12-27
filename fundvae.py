@@ -41,6 +41,7 @@ from constants import FUNDINGTYPES, INDUSTRIES, SORTED_INDUSTRIES_IDXS, UNIQ_IND
 
 # 64/16
 # Epoch 163, Train Loss: 0.028, Test Loss (20): 0.024 Best Loss: 0.022
+from dataset import UnicornDataset
 
 BATCH_SIZE = 64  # number of data points in each batch
 N_EPOCHS = 1000  # times to run the model on complete data
@@ -48,7 +49,7 @@ INPUT_DIM = FUNDINGTYPES * INDUSTRIES  # size of each input
 HIDDEN_DIM = 1024  # hidden dimension
 LATENT_DIM = 96  # latent vector dimension
 PATIENCE = 40
-lr = 0.0005  # learning rate
+lr = 0.0001  # learning rate
 
 
 class Encoder(nn.Module):
@@ -241,7 +242,8 @@ def showplot2(expected, actual):
 
 
 if __name__ == '__main__':
-    for i, name in enumerate(np.array(UNIQ_INDUSTRIES)[SORTED_INDUSTRIES_IDXS]):
+    d1 = UnicornDataset.dataset1()
+    for i, name in enumerate(np.array(d1.uniq_industries)[d1.industry_sort_idxs]):
         print(i, name)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -337,3 +339,5 @@ if __name__ == '__main__':
     showplot(expected, actual)
     m, mnz, expected, actual = rs[-1]
     showplot(expected, actual)
+
+    torch.randn(LATENT_DIM)
