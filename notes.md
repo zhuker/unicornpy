@@ -80,4 +80,4 @@ The Youtube recommender system (Youtube|2016) built deep learning models to pred
     - geography emb (shared with startup geo emb)
     - age of fund at time of investment
     - TODO: tweets of founders?
-    - _travel_ time between fund and startup locations
+    - _travel_ time between fund and startup locations (4206 uniq cities, 14035 distinct routes between startup and investor)
