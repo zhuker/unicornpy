@@ -61,3 +61,23 @@ https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/
 The Youtube recommender system (Youtube|2016) built deep learning models to predict users' watch given their previous activities (search queries and videos watched) and static information (gender, location, etc.). Watched videos and queries are represented as embeddings. Since neural networks typically take fixed-length inputs, a user’s watched videos or queries vectors are averaged, concatenated with other static features. It is recommended that features with multiple categories should be embedded into a much smaller space (roughly proportional to the logarithm of the number of unique values), and continuous features should be normalized between 0 and 1 (Youtube|2016).
 
 ![rec1](youtube1.png)
+
+
+### ideas
+
+- startup
+    - id embedding (torch.nn.Embedding layer)
+    - industry embeddings like word2vec 
+    - average of industry embeddings
+    - geography (torch.nn.Embedding layer)
+    - TODO: startup description paragraph or website text vector 
+    - TODO: founded date present in 7375 out of 45955 startups
+    - TODO: e.g. founded date is present in https://www.crunchbase.com/organization/medl-mobile but absent in db
+    - age of startup at time of investment
+    - time since invested x=normalized(t), sqrt(x), x**2
+- fund
+    - id embedding (torch.nn.Embedding layer)
+    - geography emb (shared with startup geo emb)
+    - age of fund at time of investment
+    - TODO: tweets of founders?
+    - _travel_ time between fund and startup locations
