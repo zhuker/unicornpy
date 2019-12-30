@@ -299,6 +299,9 @@ class UnicornDataset:
     def shape(self) -> Tuple[int, int]:
         return len(self.ftypes), len(self.uniq_industries)
 
+def read_json(jsonpath):
+    with open(jsonpath, "r") as f:
+        return json.load(f)
 
 def read_uir(jsonpath):
     with open(jsonpath, "r") as f:
@@ -307,7 +310,9 @@ def read_uir(jsonpath):
     ratings = useritemrating['ratings']
     funds = useritemrating['funds']
     startups = useritemrating['startups']
-    return funds, startups, ratings
+    startupIndustries = useritemrating.get('startupIndustries', {})
+    industries = useritemrating.get('industries', {})
+    return funds, startups, ratings, industries, startupIndustries
 
 
 def fastratings(r):
