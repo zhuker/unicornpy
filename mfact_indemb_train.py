@@ -91,7 +91,7 @@ class MatrixFactorization(torch.nn.Module):
         return self.forward(user, item)
 
 
-useritemrating = read_json("dataset4/useritemrating_ind_ftype_15.json")
+useritemrating = read_json("useritemrating_ind_ftype_15.json")
 ratings = useritemrating['ratings']
 funds = useritemrating['funds']
 startups = useritemrating['startups']
