@@ -45,16 +45,16 @@ class DenseNet(nn.Module):
         self.linear3 = torch.nn.Linear(H0 // 4, D_out)
         print(self)
 
-    def forward(self, users, items, inds, ft):
-        nz = (inds != 0)
+    def forward(self, funds, startups, industries, funding_type):
+        nz = (industries != 0)
         inds__sum = nz.sum(dim=1)
-        ii = self.industry_factors(inds)
+        ii = self.industry_factors(industries)
         ii[~nz] = 0
         # print(inds__sum.detach().cpu().numpy())
         ind_avg = ii.sum(dim=1) / inds__sum.unsqueeze(1)
-        users_embedding = self.user_factors(users)
-        items_embedding = self.item_factors(items)
-        ftype_embedding = self.ftype_factors(ft)
+        users_embedding = self.user_factors(funds)
+        items_embedding = self.item_factors(startups)
+        ftype_embedding = self.ftype_factors(funding_type)
         # concatenate user and item embeddings to form input
         # x = torch.cat([users_embedding, ind_avg], 1)
         # x = torch.cat([users_embedding, items_embedding], 1)

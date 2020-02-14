@@ -1,3 +1,9 @@
+### spacy
+
+`kubectl -n zhuker create -f spacyapi.yml`
+
+
+
 sentence to vector https://github.com/hanxiao/bert-as-service
 
 ### Evaluating recommender systems
